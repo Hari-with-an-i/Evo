@@ -1,0 +1,39 @@
+# -----------------------------------------------------------------------------
+# 1. Virtual Environments
+# -----------------------------------------------------------------------------
+# Ignore the virtual environment folder to avoid committing all installed packages.
+venv/
+
+
+# -----------------------------------------------------------------------------
+# 2. Secrets & Credentials
+# -----------------------------------------------------------------------------
+# Ignore environment variables and sensitive credential files.
+# NEVER commit these to a public repository.
+.env
+firebase-credentials.json
+
+
+# -----------------------------------------------------------------------------
+# 3. Python Cache & Compiled Files
+# -----------------------------------------------------------------------------
+# Ignore Python's bytecode cache and compiled files.
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# -----------------------------------------------------------------------------
+# 4. IDE / Editor Configuration
+# -----------------------------------------------------------------------------
+# Ignore editor-specific configuration files (e.g., for VS Code, PyCharm).
+.vscode/
+.idea/
+
+
+# -----------------------------------------------------------------------------
+# 5. Operating System Files
+# -----------------------------------------------------------------------------
+# Ignore OS-specific files (e.g., for Windows, macOS).
+.DS_Store
+Thumbs.db

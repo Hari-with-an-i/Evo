@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+google-search-results
+newspaper3k
+sentence-transformers
+scikit-learn
+google-generativeai
+python-dotenv
+firebase-admin
+spacy==3.7.4
+numpy==1.26.4
