@@ -273,7 +273,8 @@ async def analyze_perception_trend(request: TrendAnalysisRequest):
     return {
         "status": "success",
         "keywords": request.keywords,
-        "report": final_report
+        "report": final_report,
+        "time_series_analytics": aggregated_narratives
     }
 
 @app.post("/search")

@@ -19,6 +19,7 @@ function TrendAnalysisFeature() {
         setResults(null);
         try {
             const data = await analyzePerceptionTrend(keywords);
+            console.log("DATA RECEIVED FROM API:", data); 
             setResults(data);
         } catch (err) {
             setError('Failed to fetch analysis. Make sure the backend is running.');
@@ -53,18 +54,19 @@ function TrendAnalysisFeature() {
                 <div className="results-container">
                     <h3>Analysis Report for: {results.keywords}</h3>
                     
-                    {/* 1. Pass the correct data to the chart */}
                     <div className="chart-container">
                         <SentimentChart analyticsData={results.time_series_analytics} />
                     </div>
 
-                    {/* 2. Access the text analysis from inside the 'report' object */}
                     <div className="text-analysis">
                         <h4>Executive Summary</h4>
-                        <p>{results.report?.executive_summary}</p>
+                        {/* --- FIX IS HERE: Access the .summary property --- */}
+                        <p>{results.report?.executive_summary?.summary || "No executive summary was generated."}</p>
                         
                         <h4>Analysis of Trend</h4>
-                        <p>{results.report?.analysis_of_trend}</p>
+                        {/* --- FIX IS HERE: Access the .summary or equivalent property --- */}
+                        {/* Adjust '.summary' if the key is different, but the principle is the same */}
+                        <p>{results.report?.analysis_of_trend?.summary || "No trend analysis was generated."}</p>
 
                         <h4>Recommended Strategies</h4>
                         <div className="strategies">
