@@ -6,31 +6,42 @@ function GroundTruthFeature() {
     const [mediaText, setMediaText] = useState(''); // User can paste article text here
     // ... states for loading, error, and results
 
-    const handleAnalysis = async (e) => {
-        e.preventDefault();
-        // ... call your api service function
-    };
+    const handleQuery = async (e) => {
+    e.preventDefault();
+    // ... set loading states ...
+    try {
+        // You'll need a new `queryGroundTruth` function in api.js
+        const res = await queryGroundTruth(userQuery);
+        setResults(res); // The response will have 'answer' and 'evidence' keys
+    } catch (err) {
+        setError('Failed to query the knowledge base.');
+    } finally {
+        setIsLoading(false);
+    }
+};
 
-    return (
-        <div className="feature-card">
-            <h2>Ground Truth Comparison</h2>
-            <p>Analyze the difference between your intended message and the public narrative.</p>
-            <form onSubmit={handleAnalysis}>
-                <textarea 
-                    value={intendedTruth} 
-                    onChange={(e) => setIntendedTruth(e.target.value)}
-                    placeholder="Paste your intended message or 'ground truth' here..."
-                />
-                <textarea 
-                    value={mediaText}
-                    onChange={(e) => setMediaText(e.target.value)}
-                    placeholder="Paste the text from a news article or the general opinion you want to analyze..."
-                />
-                <button type="submit">Analyze Gap</button>
-            </form>
-            {/* Display the structured results (narrative gap, talking points, etc.) here */}
-        </div>
-    );
+// In the JSX for the 'query' mode:
+{mode === 'query' && (
+    <div>
+        <p>Ask a question to find the truth from our knowledge base.</p>
+        <form onSubmit={handleQuery}>
+            <input type="text" value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder="e.g., What is the relationship between Trump and outsourcing?"/>
+            <button type="submit">Find Truth</button>
+        </form>
+
+        {results && (
+            <div className="results-container">
+                <h4>Answer:</h4>
+                <p>{results.answer}</p>
+                <h5>Evidence from Knowledge Graph:</h5>
+                <ul>
+                    {results.evidence.map((fact, i) => <li key={i}>{fact}</li>)}
+                </ul>
+            </div>
+        )}
+    </div>
+)}
+
 }
 
 export default GroundTruthFeature;

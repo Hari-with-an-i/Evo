@@ -8,6 +8,9 @@ import google.generativeai as genai
 from database_manager import tool_save_analysis,tool_fetch_analysis
 from dotenv import load_dotenv
 from analysis_tool import tool_spacy_analysis
+from knowledge_graph_manager import kg_builder
+from knowledge_graph_manager import nlp as spacy_nlp # Rename to avoid conflict
+
 
 from analytics_manager import (
     tool_fetch_time_series_data, 
@@ -191,6 +194,13 @@ async def analyze_query(request: AnalysisRequest):
     if not final_data:
         raise HTTPException(status_code=404, detail="No credible articles could be parsed for this topic.")
         
+    print("🧠 Ingesting parsed articles into the Knowledge Graph...")
+    for article in final_data:
+        kg_builder.process_article(
+            raw_text=article['raw_text'],
+            article_id=article['url'] # Use the URL as a unique ID
+        )
+
     # --- CORRECTED LOGIC ---
 
     # 1. First, create the full response object
@@ -309,3 +319,54 @@ async def compare_narratives(request: ComparisonRequest):
         raise HTTPException(status_code=500, detail=analysis)
         
     return analysis
+
+@app.post("/query-ground-truth")
+async def query_ground_truth(request: AnalysisRequest):
+    """
+    Finds the ground truth for a user's query by checking the knowledge graph.
+    """
+    user_query = request.query
+    print(f"🧠 Querying KG for: '{user_query}'")
+    
+    # 1. Extract key entities from the user's query
+    doc = spacy_nlp(user_query)
+    entities = [ent.text for ent in doc.ents]
+    if not entities:
+        raise HTTPException(status_code=400, detail="Could not identify any key entities in your query.")
+
+    # 2. Query the Knowledge Graph to find facts connecting these entities
+    facts = []
+    with kg_builder.driver.session(database="neo4j") as session:
+        # A simple query to find paths between the first two entities
+        if len(entities) >= 2:
+            cypher_query = """
+                MATCH path = (e1)-[r:RELATIONSHIP]-(e2)
+                WHERE e1.name CONTAINS $entity1 AND e2.name CONTAINS $entity2
+                RETURN e1.name AS subject, r.type AS predicate, e2.name AS object
+                LIMIT 10
+            """
+            result = session.run(cypher_query, entity1=entities[0], entity2=entities[1])
+            facts = [f"({record['subject']})-[{record['predicate']}]->({record['object']})" for record in result]
+
+    if not facts:
+        return {"answer": "I couldn't find any direct relationships for that query in my knowledge base."}
+
+    # 3. Use an LLM to synthesize the facts into a final answer
+    synthesis_prompt = f"""
+    You are a fact-checking AI. Based ONLY on the following verified facts from our knowledge graph, provide a direct answer to the user's query. If the facts don't answer the question, say so.
+
+    USER'S QUERY: "{user_query}"
+
+    VERIFIED FACTS FROM KNOWLEDGE GRAPH:
+    - {"\n- ".join(facts)}
+
+    YOUR DIRECT ANSWER:
+    """
+    
+    completion = groq_client.chat.completions.create(
+        messages=[{"role": "user", "content": synthesis_prompt}],
+        model="llama3-8b-8192"
+    )
+    answer = completion.choices[0].message.content
+    
+    return {"answer": answer, "evidence": facts}
