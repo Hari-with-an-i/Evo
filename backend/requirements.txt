@@ -9,3 +9,4 @@ python-dotenv
 firebase-admin
 spacy==3.7.4
 numpy==1.26.4
+vaderSentiment
