@@ -1,7 +1,7 @@
 import json
 import os
 import urllib.parse
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -9,7 +9,6 @@ from database_manager import tool_save_analysis,tool_fetch_analysis
 from dotenv import load_dotenv
 from analysis_tool import tool_spacy_analysis
 from knowledge_graph_manager import kg_builder
-from knowledge_graph_manager import nlp as spacy_nlp # Rename to avoid conflict
 
 
 from analytics_manager import (
@@ -288,9 +287,10 @@ async def analyze_perception_trend(request: TrendAnalysisRequest):
     }
 
 @app.post("/search")
-async def search_articles(request: AnalysisRequest):
+async def search_articles(request: AnalysisRequest, background_tasks: BackgroundTasks):
     """
     A simple endpoint to fetch, filter, and parse credible articles.
+    It now also triggers a background task to populate the knowledge graph.
     """
     search_keyword = await tool_extract_keyword(request.query)
     raw_articles = fetch_news_from_serpapi(keywords=search_keyword, num_results=10)
@@ -299,12 +299,30 @@ async def search_articles(request: AnalysisRequest):
         
     parsed_articles = tool_filter_and_parse(raw_articles)
     
-    # Return a snippet of the text for preview
+    # This list will be returned to the user
+    articles_for_response = []
+
     for article in parsed_articles:
-        article["snippet"] = article["raw_text"][:250] + "..."
-        del article["raw_text"] # Don't send the full text
+        # --- TRIGGER BACKGROUND TASK ---
+        # Add the KG processing task to the background queue.
+        # This will run after the response is sent to the user.
+        background_tasks.add_task(
+            kg_builder.process_article,
+            raw_text=article['raw_text'], 
+            article_id=article['url']
+        )
         
-    return {"articles": parsed_articles}
+        # --- PREPARE RESPONSE FOR USER ---
+        # Create a snippet and remove the full text for a fast response
+        article_for_response = {
+            "title": article["title"],
+            "url": article["url"],
+            "source": article["source"],
+            "snippet": article["raw_text"][:250] + "..."
+        }
+        articles_for_response.append(article_for_response)
+        
+    return {"articles": articles_for_response}
 
 @app.post("/compare-narratives")
 async def compare_narratives(request: ComparisonRequest):
