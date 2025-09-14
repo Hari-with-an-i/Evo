@@ -211,3 +211,60 @@ pre {
 .chart-container {
     margin-bottom: 20px;
 }
+
+/* Add these styles to App.css */
+.sub-tabs {
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 20px;
+}
+.sub-tabs button {
+    padding: 8px 15px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: #606770;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px; /* Aligns with the border */
+}
+.sub-tabs button.active {
+    color: #1877f2;
+    border-bottom-color: #1877f2;
+}
+.feature-content form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.feature-content textarea, .feature-content input {
+    width: calc(100% - 24px); /* Account for padding */
+    padding: 12px;
+    font-size: 1rem;
+    border: 1px solid #dddfe2;
+    border-radius: 6px;
+    font-family: inherit;
+}
+.feature-content textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+.feature-content button {
+    align-self: flex-start;
+    padding: 12px 20px;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #ffffff;
+    background-color: #1877f2;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.text-analysis ul {
+    padding-left: 20px;
+}
+.text-analysis code {
+    background-color: #e0e0e0;
+    padding: 2px 5px;
+    border-radius: 4px;
+}

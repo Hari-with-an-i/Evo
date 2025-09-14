@@ -64,3 +64,13 @@ export const analyzePerceptionTrend = async (keywords, time_period_days = 30) =>
     if (!response.ok) throw new Error('Network response was not ok.');
     return response.json();
 };
+
+export const queryGroundTruth = async (query) => {
+    const response = await fetch(`${API_URL}/query-ground-truth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+    });
+    if (!response.ok) throw new Error('Network response was not ok.');
+    return response.json();
+};
