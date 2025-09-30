@@ -43,8 +43,12 @@ CREDIBLE_SOURCES = {
     'bloomberg.com',
     'forbes.com',
     'thehindu.com',
-    'timesofindia.indiatimes.com'
-}
+    'timesofindia.indiatimes.com',
+    'ign.com',
+    'gamespot.com',
+    'gamesradar.com',
+    'pcgamer.com',
+    'gamingbolt.com'}
 
 app = FastAPI(title="News Analysis Agent")
 
@@ -355,7 +359,6 @@ async def query_ground_truth(request: AnalysisRequest):
     # 2. Query the Knowledge Graph to find facts connecting these entities
     facts = []
     with kg_builder.driver.session(database="neo4j") as session:
-        # A simple query to find paths between the first two entities
         if len(entities) >= 2:
             cypher_query = """
                 MATCH path = (e1)-[r:RELATIONSHIP]-(e2)
@@ -369,21 +372,25 @@ async def query_ground_truth(request: AnalysisRequest):
     if not facts:
         return {"answer": "I couldn't find any direct relationships for that query in my knowledge base."}
 
+
     # 3. Use an LLM to synthesize the facts into a final answer
+    formatted_facts = "- " + "\n- ".join(facts)
+
+    # 2. Now, create the f-string using the clean variable.
     synthesis_prompt = f"""
     You are a fact-checking AI. Based ONLY on the following verified facts from our knowledge graph, provide a direct answer to the user's query. If the facts don't answer the question, say so.
 
     USER'S QUERY: "{user_query}"
 
     VERIFIED FACTS FROM KNOWLEDGE GRAPH:
-    - {"\n- ".join(facts)}
+    {formatted_facts}
 
     YOUR DIRECT ANSWER:
     """
     
     completion = groq_client.chat.completions.create(
         messages=[{"role": "user", "content": synthesis_prompt}],
-        model="llama3-8b-8192"
+        model="llama-3.3-70b-versatile"
     )
     answer = completion.choices[0].message.content
     
