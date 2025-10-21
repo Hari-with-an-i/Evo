@@ -140,42 +140,6 @@ def tool_filter_and_parse(articles_from_api: list) -> list[dict]:
     print(f"🧹 Process complete. Stored raw text from {len(cleaned_articles)} credible articles.")
     return cleaned_articles
 
-async def tool_compare_narratives(intended_truth: str, media_text: str) -> dict:
-    """
-    Uses an LLM to analyze the gap between an intended message and media text.
-    """
-    print("🔬 Performing narrative gap analysis...")
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
-    # This is the refined prompt for high-quality analysis
-    prompt = f"""
-    You are a strategic communications analyst. Your task is to analyze the gap between an intended message and the actual media narrative.
-
-    1. INTENDED MESSAGE (The "Ground Truth"):
-    "{intended_truth}"
-
-    2. PERCEIVED MEDIA NARRATIVE (Text from a news article or opinion piece):
-    "{media_text}"
-
-    YOUR ANALYSIS:
-    - **Narrative Gap Analysis:** In a single paragraph, describe the key differences in facts, tone, and focus.
-    - **Key Misinterpreted Points:** Create a list of specific points from the intended message that are being lost, ignored, or twisted in the media narrative.
-    - **Counter Speech Talking Points:** Provide 3-4 clear, concise talking points that can be used to counter the misinformation and realign the narrative with the ground truth.
-
-    OUTPUT FORMAT:
-    Provide your response as a JSON object with the keys: "narrative_gap", "misinterpreted_points", and "counter_speech_points".
-    """
-    
-    try:
-        response = await model.generate_content_async(prompt)
-        # Clean the response to ensure it's valid JSON
-        cleaned_json_string = response.text.strip().replace("```json", "").replace("```", "")
-        analysis_result = json.loads(cleaned_json_string)
-        print("✅ Narrative gap analysis complete.")
-        return analysis_result
-    except Exception as e:
-        print(f"❌ LLM Comparison Error: {e}")
-        return {"error": f"Failed to perform narrative comparison.", "raw_response": response.text}
 
 @app.post("/analyze-query")
 async def analyze_query(request: AnalysisRequest):
