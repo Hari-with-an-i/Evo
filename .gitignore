@@ -29,7 +29,8 @@ __pycache__/
 # Ignore editor-specific configuration files (e.g., for VS Code, PyCharm).
 .vscode/
 .idea/
-
+key1
+key1.pub
 
 # -----------------------------------------------------------------------------
 # 5. Operating System Files

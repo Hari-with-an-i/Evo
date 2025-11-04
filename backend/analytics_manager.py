@@ -9,7 +9,7 @@ from transformers import pipeline
 # --- API Tools ---
 from groq import Groq
 from news_fetcher import fetch_news_from_serpapi
-from config import GROQ_API_KEY
+from config import GROQ_API_KEY # Only import the key we need
 
 # ==============================================================================
 # 1. INITIALIZE ALL MODELS AND CLIENTS ONCE AT THE TOP
@@ -53,17 +53,17 @@ def get_emotion(text: str) -> str:
 
 def tool_run_text_analytics(articles: list) -> list:
     print(f"🔬 Running text analytics on {len(articles)} articles...")
-    # ... (This function is correct and remains the same)
+    enriched_articles = []
     for article in articles:
         text = article.get("raw_text", "")
         article['sentiment_score'] = get_sentiment(text)
         article['emotion'] = get_emotion(text)
+        enriched_articles.append(article)
     print("✅ Text analysis complete.")
-    return articles
+    return enriched_articles
 
 def tool_fetch_time_series_data(keywords: str, time_period_days: int, granularity_days: int) -> list:
     print(f"🗓️ Fetching time-series data for '{keywords}'...")
-    # ... (This function is correct and remains the same)
     all_articles = []
     end_date = datetime.now()
     for i in range(0, time_period_days, granularity_days):
@@ -86,25 +86,30 @@ async def tool_aggregate_analytics(analyzed_articles: list) -> dict:
         
     final_analytics = {}
     
+    if not groq_client:
+        print("❌ Groq client not initialized. Skipping narrative aggregation.")
+        return final_analytics
+
     for period, articles in grouped_articles.items():
         print(f"  -> Processing period starting {period} ({len(articles)} articles)")
         corpus = "\n\n---\n\n".join([f"Title: {a['title']}\n{a['raw_text']}" for a in articles])
         avg_sentiment = sum(a['sentiment_score'] for a in articles) / len(articles)
         
-        narratives = "Could not determine narratives (Groq client not initialized)."
-        if groq_client:
-            # --- THIS IS THE FIX: Using Groq instead of Gemini ---
-            narrative_prompt = f"Analyze the following news articles from a single time period. Identify and summarize the 2-3 dominant, distinct narratives or sub-plots. Be specific and concise.\n\nARTICLES:\n{corpus[:12000]}"
-            try:
-                chat_completion = groq_client.chat.completions.create(
-                    messages=[{"role": "user", "content": narrative_prompt}],
-                    model="llama-3.3-70b-versatile" # Use a fast model for summarization
-                )
-                narratives = chat_completion.choices[0].message.content
-            except Exception as e:
-                print(f"❌ Groq narrative generation error: {e}")
-                narratives = "Could not determine narratives for this period due to an API error."
+        narrative_prompt = f"Analyze the following news articles from a single time period. Identify and summarize the 2-3 dominant, distinct narratives or sub-plots. Be specific and concise.\n\nARTICLES:\n{corpus[:12000]}"
         
+        try:
+            # --- THIS IS THE FIX ---
+            # Using a valid, fast model for this aggregation step
+            chat_completion = groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": narrative_prompt}],
+                model="llama3-8b-8192" 
+            )
+            narratives = chat_completion.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Groq narrative generation error: {e}")
+            narratives = "Could not determine narratives for this period due to an API error."
+        # --- END OF FIX ---
+
         final_analytics[period] = {
             "article_count": len(articles),
             "dominant_narratives": narratives,
@@ -120,7 +125,6 @@ async def tool_generate_narrative_report(analytics_data: dict) -> dict:
         return {"error": "Groq API key is not configured."}
     
     print("💡 Generating full media narrative report with Groq API...")
-    
     briefing = ""
     sorted_periods = sorted(analytics_data.keys())
     for period in sorted_periods:
@@ -130,7 +134,7 @@ async def tool_generate_narrative_report(analytics_data: dict) -> dict:
         briefing += f"Overall Sentiment Score: {data['average_sentiment_score']}\n"
         briefing += f"Supporting Raw Text for this period:\n{data['full_text_corpus'][:5000]}\n\n"
 
-    # --- THIS IS THE CORRECTED PROMPT ---
+    # This prompt is correct and matches your frontend (executive_summary, analysis_of_trend)
     prompt = f"""
     You are a senior media intelligence analyst delivering a high-level briefing.
 
@@ -147,16 +151,19 @@ async def tool_generate_narrative_report(analytics_data: dict) -> dict:
     **IMPORTANT:** Your entire output must be a single, valid JSON object and nothing else.
     """
 
+    response_text = None # Initialize to handle errors
     try:
         chat_completion = groq_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            # --- THIS IS THE FIX ---
+            # Using the valid, powerful model for the final report
+            model="llama-3.3-70b-versatile", 
             response_format={"type": "json_object"},
         )
-        report_string = chat_completion.choices[0].message.content
-        report = json.loads(report_string)
+        response_text = chat_completion.choices[0].message.content
+        report = json.loads(response_text)
         print("✅ Full narrative report generated successfully by Groq.")
         return report
     except Exception as e:
         print(f"❌ Groq API Report Generation Error: {e}")
-        return {"error": "Failed to generate report from Groq API.", "details": str(e)}
+        return {"error": "Failed to generate valid JSON report.", "raw_response": response_text, "details": str(e)}
