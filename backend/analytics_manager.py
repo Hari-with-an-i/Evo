@@ -102,7 +102,8 @@ async def tool_aggregate_analytics(analyzed_articles: list) -> dict:
             # Using a valid, fast model for this aggregation step
             chat_completion = groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": narrative_prompt}],
-                model="llama3-8b-8192" 
+                model="llama-3.3-70b-versatile"
+
             )
             narratives = chat_completion.choices[0].message.content
         except Exception as e:
