@@ -6,13 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 from dotenv import load_dotenv
+from typing import Optional
 
 
 from analytics_manager import (
     tool_fetch_time_series_data, 
     tool_run_text_analytics,
     tool_aggregate_analytics, # <-- Import the new tool
-    tool_generate_narrative_report
+    tool_generate_narrative_report,
+    generate_counterspeech_with_evidence
 )
 
 # Import your custom tool for fetching news
@@ -71,8 +73,47 @@ class TrendAnalysisRequest(BaseModel):
     time_period_days: int = 30 # Default to analyzing the last 30 days
     granularity_days: int = 7   # Analyze in 7-day (weekly) chunks
 
+class CounterspeechRequest(BaseModel):
+    statement: str
+    days_back: Optional[int] = 30
+    top_k: Optional[int] = 3
+    # optional manual keywords override (if you want to force the search terms)
+    keywords: Optional[str] = None
+
+
 
 # --- Agent Tools ---
+
+@app.post("/generate-counterspeech", include_in_schema=True)
+async def generate_counterspeech_api(payload: CounterspeechRequest):
+    """
+    Generate a short counterspeech plus relevant news evidence.
+    """
+    # Basic validation
+    if not payload.statement or not payload.statement.strip():
+        raise HTTPException(status_code=400, detail="`statement` must be a non-empty string.")
+
+    try:
+        # Call the counterspeech generator (sync function)
+        result = await generate_counterspeech_with_evidence(
+            statement=payload.statement,
+            days_back=payload.days_back,
+            top_k=payload.top_k,
+            keywords=payload.keywords
+        )
+
+        # If your function returns an error structure, map it to HTTP error
+        if not result or "counterspeech" not in result:
+            raise HTTPException(status_code=500, detail="Failed to generate counterspeech.")
+
+        return {"status": "success", "result": result}
+
+    except Exception as e:
+        # Log error server-side
+        print(f"❌ Counterspeech generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 async def tool_extract_keyword(user_query: str) -> str:
     """
