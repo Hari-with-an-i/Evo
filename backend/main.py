@@ -52,18 +52,25 @@ CREDIBLE_SOURCES = {
 app = FastAPI(title="News Analysis Agent")
 
 origins = [
-    "http://localhost:5173", # The default Vite dev server address
-    "http://localhost:3000", # The default create-react-app address
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:5174",  # <--- ADD THIS
+    "http://127.0.0.1:5174"   # <--- Optional but recommended
 ]
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
-    allow_methods=["*"], # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"], # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
 
 class AnalysisRequest(BaseModel):
     query: str # The user's natural language query
