@@ -1,6 +1,8 @@
 import json
+import re
 from datetime import datetime, timedelta
 from collections import defaultdict, Counter
+from heapq import nlargest
 
 # --- Local Analysis Tools ---
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -9,7 +11,9 @@ from transformers import pipeline
 # --- API Tools ---
 from groq import Groq
 from news_fetcher import fetch_news_from_serpapi
-from config import GROQ_API_KEY
+from config import GROQ_API_KEY,SERPAPI_KEY
+
+
 
 # ==============================================================================
 # 1. INITIALIZE ALL MODELS AND CLIENTS ONCE AT THE TOP
@@ -160,3 +164,306 @@ async def tool_generate_narrative_report(analytics_data: dict) -> dict:
     except Exception as e:
         print(f"❌ Groq API Report Generation Error: {e}")
         return {"error": "Failed to generate report from Groq API.", "details": str(e)}
+
+def tool_extract_keyword(user_query: str) -> str:
+    """
+    Uses an LLM to distill a user's query into a clean, searchable keyword/phrase.
+    """
+    print(f"🤖 Using LLM to extract keyword from: '{user_query}'")
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = (
+            "You are an expert search query analyst. "
+            "Analyze the following user query and extract the core, neutral topic or keyword phrase. "
+            "The output should be a clean search term only, with no extra explanation. "
+            f"QUERY: '{user_query}'"
+        )
+        response = model.generate_content_async(prompt)
+        keyword = response.text.strip()
+        print(f"✅ Extracted Keyword: '{keyword}'")
+        return keyword
+    except Exception as e:
+        print(f"❌ LLM Keyword Extraction Error: {e}")
+        # Fallback to using the raw query if LLM fails
+        return user_query
+
+def _score_article_relevance(article: dict, query: str) -> float:
+    """
+    Simple relevance scoring: term frequency * recency weight.
+    """
+    text = (article.get("title", "") + " " + article.get("raw_text", "")).lower()
+    qterms = [
+        t for t in re.findall(r"\b[a-zA-Z']{3,}\b", query.lower())
+        if len(t) > 2
+    ]
+    if not qterms:
+        return 0.0
+
+    count = sum(text.count(t) for t in qterms)
+
+    date_str = (
+        article.get("published_at")
+        or article.get("date")
+        or article.get("time_period")
+    )
+    recency_weight = 1.0
+    try:
+        if date_str:
+            dt = datetime.fromisoformat(str(date_str)[:10])
+            days_old = (datetime.now() - dt).days
+            recency_weight = 1.0 / (1 + days_old / 30)
+    except Exception:
+        recency_weight = 1.0
+
+    return count * recency_weight
+    
+async def generate_counterspeech_with_evidence(
+    statement: str,
+    days_back: int = 30,
+    top_k: int = 3,
+    keywords: str | None = None
+) -> dict:
+    """
+    Produces counterspeech (few short paragraphs) for `statement` and returns
+    top_k news evidences supporting the counterspeech.
+    """
+
+    # 1) Prepare keywords
+    if keywords is None or not keywords.strip():
+        search_query = tool_extract_keyword(statement)
+    else:
+        cleaned = " ".join(
+            [w for w in re.findall(r"\b[a-zA-Z']{3,}\b", keywords.lower())]
+        )
+        if len(cleaned.split()) >= 2 or len(cleaned) >= 8:
+            search_query = cleaned
+        else:
+            print(
+                f"⚠️ Ignoring weak user keywords '{keywords}'. "
+                "Using auto-extracted query instead."
+            )
+            search_query = tool_extract_keyword(statement)
+
+    # 2) Check API key presence (diagnostic)
+    print(f"🔎 Counterspeech search query: '{search_query}' (days_back={days_back})")
+    if not SERPAPI_KEY:
+        print(
+            "⚠️ SERPAPI key not configured (SERPAPI_KEY is empty). "
+            "fetch_news_from_serpapi will likely return no results."
+        )
+
+    # 3) Fetch recent articles
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days_back)
+    start_date_str = start_date.strftime("%m/%d/%Y")
+    end_date_str = end_date.strftime("%m/%d/%Y")
+
+    print(
+        f"🔎 Attempting news fetch (primary) for: "
+        f"'{search_query}' from {start_date_str} to {end_date_str}"
+    )
+    try:
+        articles = fetch_news_from_serpapi(
+            keywords=search_query,
+            start_date=start_date_str,
+            end_date=end_date_str,
+            num_results=10,
+        )
+    except TypeError:
+        articles = fetch_news_from_serpapi(
+            keywords=search_query,
+            start_date=start_date_str,
+            end_date=end_date_str,
+        )
+    except Exception as e:
+        print(f"❌ Error fetching news (primary): {e}")
+        articles = []
+
+    # Fallback: broader search
+    if not articles:
+        print(
+            "⚠️ Primary fetch returned zero articles. "
+            "Trying a broader fetch (more results)..."
+        )
+        try:
+            articles = fetch_news_from_serpapi(
+                keywords=search_query,
+                num_results=50
+            )
+        except Exception as e:
+            print(f"❌ Error fetching news (broader): {e}")
+            articles = []
+
+    # Fallback: hardcoded query
+    if not articles:
+        fallback_query = "ai jobs automation impact employment"
+        print(f"⚠️ Broader fetch failed. Trying fallback query: '{fallback_query}'")
+        try:
+            articles = fetch_news_from_serpapi(
+                keywords=fallback_query,
+                num_results=50
+            )
+        except Exception as e:
+            print(f"❌ Error fetching news (fallback): {e}")
+            articles = []
+
+    print(f"🔎 Fetch complete. Retrieved {len(articles)} raw article(s).")
+    if articles:
+        sample_titles = [a.get("title") for a in articles[:5]]
+        print("📰 Sample titles:", sample_titles)
+
+    # Ensure raw_text exists
+    for a in articles:
+        if not a.get("raw_text") and a.get("snippet"):
+            a["raw_text"] = a["snippet"]
+        if not a.get("raw_text"):
+            a["raw_text"] = a.get("title", "")
+
+    # 4) Run analytics
+    try:
+        articles = tool_run_text_analytics(articles)
+    except Exception as e:
+        print(f"⚠️ Text analytics failed: {e}")
+
+    # 5) Score & select top_k
+    scored = []
+    for a in articles:
+        score = _score_article_relevance(a, search_query)
+        scored.append((score, a))
+    top_articles = [
+        a for s, a in nlargest(top_k, scored, key=lambda x: x[0])
+        if s > 0
+    ]
+
+    if not top_articles and articles:
+        # Fallback: most recent
+        top_articles = sorted(
+            articles,
+            key=lambda at: at.get("published_at", at.get("date", "")),
+            reverse=True
+        )[:top_k]
+
+    evidences = []
+    for a in top_articles:
+        evidences.append({
+            "title": a.get("title", "Untitled"),
+            "source": a.get("source") or a.get("publisher") or "unknown",
+            "date": a.get("published_at") or a.get("date") or a.get("time_period"),
+            "url": a.get("url") or a.get("link") or None,
+            "snippet": (a.get("raw_text") or "")[:400],
+            "sentiment_score": a.get("sentiment_score"),
+            "emotion": a.get("emotion"),
+        })
+
+    # 6) Build counterspeech (Groq first, then fallback)
+    counterspeech_text = None
+
+    if groq_client and evidences:
+        try:
+            evidence_text = "\n\n".join(
+                [
+                    f"[{idx + 1}] {ev['title']} — {ev['snippet']}"
+                    for idx, ev in enumerate(evidences)
+                ]
+            )
+
+            prompt = f"""
+You are a senior policy-oriented media analyst. A user has made the following public statement:
+
+\"\"\"{statement}\"\"\"
+
+
+You have access to the following recent reporting from credible news sources:
+
+{evidence_text}
+
+Your task is to produce a concise, professional counterspeech response that:
+
+1. Provides a **fact-based, nuanced correction** to any exaggeration or misinformation in the statement.
+2. Reflects the **overall picture** emerging from the evidence, especially regarding labour markets, automation, or structural change.
+3. Uses a **measured and neutral tone**, similar to a government or multilateral policy brief.
+4. Avoids bracketed citation markers like [1] or [2]. Instead, refer to evidence in natural language (e.g., “Recent coverage from a major business outlet notes…”, “Several industry analyses suggest…”).
+5. Is written in **5–8 sentences**, aimed at a general but informed audience.
+6. Emphasises **transition, adaptation, and policy responses** rather than alarmism.
+
+Write only the final counterspeech text.
+"""
+
+            completion = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            counterspeech_text = completion.choices[0].message.content.strip()
+
+        except Exception as e:
+            print(f"❌ Groq counterspeech generation error: {e}")
+            counterspeech_text = None
+
+    # Fallback if Groq not available or failed
+    if not counterspeech_text:
+        if evidences:
+            first_snip = (
+                evidences[0]["snippet"][:200]
+                if evidences
+                else "Recent reporting suggests a more nuanced picture."
+            )
+            lines = []
+            lines.append(
+                "Available reporting indicates a more nuanced labour-market transition "
+                "rather than a simple story of technology replacing all jobs."
+            )
+            lines.append(
+                f"For example, recent coverage notes that {first_snip} ..."
+            )
+            if len(evidences) > 1:
+                lines.append(
+                    "Additional analyses highlight both short-term dislocation and "
+                    "longer-term job creation in adjacent or newly emerging roles."
+                )
+            lines.append(
+                "From a policy perspective, the emphasis is on skills development, "
+                "active labour-market measures, and organisational adaptation, "
+                "rather than assuming a purely negative employment outcome."
+            )
+            counterspeech_text = "\n\n".join(lines)
+        else:
+            counterspeech_text = (
+                "Current evidence generally suggests that automation and AI tend to "
+                "reconfigure tasks within occupations rather than eliminate all jobs "
+                "outright. While certain roles may face displacement in the short term, "
+                "new opportunities often emerge in complementary areas, particularly "
+                "where human judgment, oversight, and interaction remain essential. "
+                "Most policy-focused analyses therefore stress reskilling, education, "
+                "and targeted support for affected workers, rather than assuming a "
+                "linear path towards widespread technological unemployment."
+            )
+
+    # 7) Build final response
+    evidence_output = []
+    for i, ev in enumerate(evidences, start=1):
+        entry = {
+            "index": i,
+            "title": ev.get("title"),
+            "source": ev.get("source"),
+            "date": ev.get("date"),
+            "url": ev.get("url"),
+            "snippet": ev.get("snippet"),
+        }
+        evidence_output.append(entry)
+
+    result = {
+        "counterspeech": counterspeech_text,
+        "evidences": evidence_output,
+        "meta": {
+            "search_query": search_query,
+            "days_back": days_back,
+            "found_articles": len(articles),
+            "returned_evidences": len(evidence_output),
+            "used_groq": bool(groq_client),
+            "notes": (
+                "If no evidences were returned, check SERPAPI key and "
+                "news_fetcher implementation."
+            ),
+        },
+    }
+    return result
