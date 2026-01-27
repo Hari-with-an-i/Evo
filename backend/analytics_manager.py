@@ -6,7 +6,8 @@ from heapq import nlargest
 
 # --- Local Analysis Tools ---
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from transformers import pipeline
+from transformers import pipeline, logging
+from google import genai
 
 # --- API Tools ---
 from groq import Groq
@@ -25,11 +26,13 @@ print("✅ VADER Sentiment Analyzer initialized.")
 
 # Hugging Face Emotion Analysis Pipeline
 print("🧠 Loading Emotion Analysis model...")
+
 emotion_pipeline = pipeline(
     "text-classification", 
     model="cardiffnlp/twitter-roberta-base-emotion",
     top_k=1
 )
+logging.set_verbosity_warning()
 print("✅ Emotion Analysis model loaded.")
 
 # Groq API Client
@@ -171,14 +174,19 @@ def tool_extract_keyword(user_query: str) -> str:
     """
     print(f"🤖 Using LLM to extract keyword from: '{user_query}'")
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Initialize the client from environment variable
+        client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
         prompt = (
             "You are an expert search query analyst. "
             "Analyze the following user query and extract the core, neutral topic or keyword phrase. "
             "The output should be a clean search term only, with no extra explanation. "
             f"QUERY: '{user_query}'"
         )
-        response = model.generate_content_async(prompt)
+        # Using synchronous call as this function is synchronous
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt
+        )
         keyword = response.text.strip()
         print(f"✅ Extracted Keyword: '{keyword}'")
         return keyword

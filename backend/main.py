@@ -4,7 +4,7 @@ import urllib.parse
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -23,7 +23,8 @@ from config import GOOGLE_API_KEY, SERPAPI_KEY
 
 # --- Configuration & Setup ---
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# genai is initialized per request or via Client instantiation where needed
+# genai.configure(api_key=os.getenv("GOOGLE_API_KEY")) # Old SDK way
 SERPAPI_KEY = os.getenv("SERPAPI_API_KEY")
 
 # 1. CREDIBILITY FILTER: Define your list of trusted news sources
@@ -128,14 +129,17 @@ async def tool_extract_keyword(user_query: str) -> str:
     """
     print(f"🤖 Using LLM to extract keyword from: '{user_query}'")
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         prompt = (
             "You are an expert search query analyst. "
             "Analyze the following user query and extract the core, neutral topic or keyword phrase. "
             "The output should be a clean search term only, with no extra explanation. "
             f"QUERY: '{user_query}'"
         )
-        response = await model.generate_content_async(prompt)
+        response = await client.aio.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt
+        )
         keyword = response.text.strip()
         print(f"✅ Extracted Keyword: '{keyword}'")
         return keyword
