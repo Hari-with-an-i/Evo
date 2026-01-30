@@ -11,10 +11,10 @@ from google import genai
 
 # --- API Tools ---
 from groq import Groq
-from news_fetcher import fetch_news_from_serpapi
-from config import GROQ_API_KEY,SERPAPI_KEY
+from .news_fetcher import fetch_news_from_serpapi
+from app.config import GROQ_API_KEY, SERPAPI_KEY, GOOGLE_API_KEY
 
-
+import os
 
 # ==============================================================================
 # 1. INITIALIZE ALL MODELS AND CLIENTS ONCE AT THE TOP
@@ -22,10 +22,10 @@ from config import GROQ_API_KEY,SERPAPI_KEY
 
 # VADER Sentiment Analyzer
 sentiment_analyzer = SentimentIntensityAnalyzer()
-print("✅ VADER Sentiment Analyzer initialized.")
+print("[SUCCESS] VADER Sentiment Analyzer initialized.")
 
 # Hugging Face Emotion Analysis Pipeline
-print("🧠 Loading Emotion Analysis model...")
+print("[INFO] Loading Emotion Analysis model...")
 
 emotion_pipeline = pipeline(
     "text-classification", 
@@ -33,15 +33,15 @@ emotion_pipeline = pipeline(
     top_k=1
 )
 logging.set_verbosity_warning()
-print("✅ Emotion Analysis model loaded.")
+print("[SUCCESS] Emotion Analysis model loaded.")
 
 # Groq API Client
 if GROQ_API_KEY:
     groq_client = Groq(api_key=GROQ_API_KEY)
-    print("✅ Groq API client initialized.")
+    print("[SUCCESS] Groq API client initialized.")
 else:
     groq_client = None
-    print("❌ Groq API key not found. Narrative generation will be skipped.")
+    print("[ERROR] Groq API key not found. Narrative generation will be skipped.")
 
 # ==============================================================================
 # 2. HELPER AND TOOL FUNCTIONS
@@ -59,18 +59,44 @@ def get_emotion(text: str) -> str:
         return "unknown"
 
 def tool_run_text_analytics(articles: list) -> list:
-    print(f"🔬 Running text analytics on {len(articles)} articles...")
-    # ... (This function is correct and remains the same)
+    print(f"[INFO] Running text analytics on {len(articles)} articles...")
     for article in articles:
         text = article.get("raw_text", "")
         article['sentiment_score'] = get_sentiment(text)
         article['emotion'] = get_emotion(text)
-    print("✅ Text analysis complete.")
+    print("[SUCCESS] Text analysis complete.")
     return articles
 
+# --- Added for Source Filtering ---
+
+CREDIBLE_SOURCES = [
+    "reuters", "apnews", "bbc", "npr", "pbs", "bloomberg", 
+    "wsj", "nytimes", "washingtonpost", "economist", "ft.com",
+    "nature.com", "sciencemag", "who.int", "un.org"
+]
+
+def tool_filter_and_parse(articles: list) -> list:
+    print(f"[INFO] Filtering {len(articles)} articles for credible sources...")
+    credible_articles = []
+    
+    for article in articles:
+        # Check source name or URL
+        source = str(article.get("source", "")).lower()
+        url = str(article.get("link", "")).lower()
+        
+        is_credible = any(cs in source or cs in url for cs in CREDIBLE_SOURCES)
+        
+        if is_credible:
+            # Ensure raw text is present (if not, maybe just use snippet)
+            if not article.get("raw_text"):
+                article["raw_text"] = article.get("snippet", "")
+            credible_articles.append(article)
+            
+    print(f"[SUCCESS] Found {len(credible_articles)} credible articles.")
+    return credible_articles
+
 def tool_fetch_time_series_data(keywords: str, time_period_days: int, granularity_days: int) -> list:
-    print(f"🗓️ Fetching time-series data for '{keywords}'...")
-    # ... (This function is correct and remains the same)
+    print(f"[INFO] Fetching time-series data for '{keywords}'...")
     all_articles = []
     end_date = datetime.now()
     for i in range(0, time_period_days, granularity_days):
@@ -82,11 +108,11 @@ def tool_fetch_time_series_data(keywords: str, time_period_days: int, granularit
             article['time_period'] = start_date.strftime("%Y-%m-%d")
         all_articles.extend(articles_in_period)
         end_date = start_date
-    print(f"✅ Time-series fetch complete. Found {len(all_articles)} articles.")
+    print(f"[SUCCESS] Time-series fetch complete. Found {len(all_articles)} articles.")
     return all_articles
 
 async def tool_aggregate_analytics(analyzed_articles: list) -> dict:
-    print("📊 Aggregating analytics and identifying narratives...")
+    print("[INFO] Aggregating analytics and identifying narratives...")
     grouped_articles = defaultdict(list)
     for article in analyzed_articles:
         grouped_articles[article['time_period']].append(article)
@@ -100,16 +126,15 @@ async def tool_aggregate_analytics(analyzed_articles: list) -> dict:
         
         narratives = "Could not determine narratives (Groq client not initialized)."
         if groq_client:
-            # --- THIS IS THE FIX: Using Groq instead of Gemini ---
             narrative_prompt = f"Analyze the following news articles from a single time period. Identify and summarize the 2-3 dominant, distinct narratives or sub-plots. Be specific and concise.\n\nARTICLES:\n{corpus[:12000]}"
             try:
                 chat_completion = groq_client.chat.completions.create(
                     messages=[{"role": "user", "content": narrative_prompt}],
-                    model="llama-3.3-70b-versatile" # Use a fast model for summarization
+                    model="llama-3.3-70b-versatile"
                 )
                 narratives = chat_completion.choices[0].message.content
             except Exception as e:
-                print(f"❌ Groq narrative generation error: {e}")
+                print(f"[ERROR] Groq narrative generation error: {e}")
                 narratives = "Could not determine narratives for this period due to an API error."
         
         final_analytics[period] = {
@@ -119,14 +144,14 @@ async def tool_aggregate_analytics(analyzed_articles: list) -> dict:
             "full_text_corpus": corpus
         }
         
-    print("✅ Narrative aggregation complete.")
+    print("[SUCCESS] Narrative aggregation complete.")
     return final_analytics
 
 async def tool_generate_narrative_report(analytics_data: dict) -> dict:
     if not groq_client:
         return {"error": "Groq API key is not configured."}
     
-    print("💡 Generating full media narrative report with Groq API...")
+    print("[INFO] Generating full media narrative report with Groq API...")
     
     briefing = ""
     sorted_periods = sorted(analytics_data.keys())
@@ -137,7 +162,6 @@ async def tool_generate_narrative_report(analytics_data: dict) -> dict:
         briefing += f"Overall Sentiment Score: {data['average_sentiment_score']}\n"
         briefing += f"Supporting Raw Text for this period:\n{data['full_text_corpus'][:5000]}\n\n"
 
-    # --- THIS IS THE CORRECTED PROMPT ---
     prompt = f"""
     You are a senior media intelligence analyst delivering a high-level briefing.
 
@@ -162,43 +186,35 @@ async def tool_generate_narrative_report(analytics_data: dict) -> dict:
         )
         report_string = chat_completion.choices[0].message.content
         report = json.loads(report_string)
-        print("✅ Full narrative report generated successfully by Groq.")
+        print("[SUCCESS] Full narrative report generated successfully by Groq.")
         return report
     except Exception as e:
-        print(f"❌ Groq API Report Generation Error: {e}")
+        print(f"[ERROR] Groq API Report Generation Error: {e}")
         return {"error": "Failed to generate report from Groq API.", "details": str(e)}
 
 def tool_extract_keyword(user_query: str) -> str:
-    """
-    Uses an LLM to distill a user's query into a clean, searchable keyword/phrase.
-    """
-    print(f"🤖 Using LLM to extract keyword from: '{user_query}'")
+    print(f"[INFO] Using LLM to extract keyword from: '{user_query}'")
     try:
-        # Initialize the client from environment variable
-        client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+        # Initialize the client with the API key from config/env
+        client = genai.Client(api_key=GOOGLE_API_KEY)
         prompt = (
             "You are an expert search query analyst. "
             "Analyze the following user query and extract the core, neutral topic or keyword phrase. "
             "The output should be a clean search term only, with no extra explanation. "
             f"QUERY: '{user_query}'"
         )
-        # Using synchronous call as this function is synchronous
         response = client.models.generate_content(
             model='gemini-1.5-flash',
             contents=prompt
         )
         keyword = response.text.strip()
-        print(f"✅ Extracted Keyword: '{keyword}'")
+        print(f"[SUCCESS] Extracted Keyword: '{keyword}'")
         return keyword
     except Exception as e:
-        print(f"❌ LLM Keyword Extraction Error: {e}")
-        # Fallback to using the raw query if LLM fails
+        print(f"[ERROR] LLM Keyword Extraction Error: {e}")
         return user_query
 
 def _score_article_relevance(article: dict, query: str) -> float:
-    """
-    Simple relevance scoring: term frequency * recency weight.
-    """
     text = (article.get("title", "") + " " + article.get("raw_text", "")).lower()
     qterms = [
         t for t in re.findall(r"\b[a-zA-Z']{3,}\b", query.lower())
@@ -231,11 +247,6 @@ async def generate_counterspeech_with_evidence(
     top_k: int = 3,
     keywords: str | None = None
 ) -> dict:
-    """
-    Produces counterspeech (few short paragraphs) for `statement` and returns
-    top_k news evidences supporting the counterspeech.
-    """
-
     # 1) Prepare keywords
     if keywords is None or not keywords.strip():
         search_query = tool_extract_keyword(statement)
@@ -247,16 +258,15 @@ async def generate_counterspeech_with_evidence(
             search_query = cleaned
         else:
             print(
-                f"⚠️ Ignoring weak user keywords '{keywords}'. "
+                f"[WARNING] Ignoring weak user keywords '{keywords}'. "
                 "Using auto-extracted query instead."
             )
             search_query = tool_extract_keyword(statement)
 
-    # 2) Check API key presence (diagnostic)
-    print(f"🔎 Counterspeech search query: '{search_query}' (days_back={days_back})")
+    print(f"[SEARCH] Counterspeech search query: '{search_query}' (days_back={days_back})")
     if not SERPAPI_KEY:
         print(
-            "⚠️ SERPAPI key not configured (SERPAPI_KEY is empty). "
+            "[WARNING] SERPAPI key not configured (SERPAPI_KEY is empty). "
             "fetch_news_from_serpapi will likely return no results."
         )
 
@@ -267,7 +277,7 @@ async def generate_counterspeech_with_evidence(
     end_date_str = end_date.strftime("%m/%d/%Y")
 
     print(
-        f"🔎 Attempting news fetch (primary) for: "
+        f"[SEARCH] Attempting news fetch (primary) for: "
         f"'{search_query}' from {start_date_str} to {end_date_str}"
     )
     try:
@@ -284,41 +294,32 @@ async def generate_counterspeech_with_evidence(
             end_date=end_date_str,
         )
     except Exception as e:
-        print(f"❌ Error fetching news (primary): {e}")
+        print(f"[ERROR] Error fetching news (primary): {e}")
         articles = []
 
     # Fallback: broader search
     if not articles:
-        print(
-            "⚠️ Primary fetch returned zero articles. "
-            "Trying a broader fetch (more results)..."
-        )
+        print("[WARNING] Primary fetch returned zero articles. Trying a broader fetch...")
         try:
-            articles = fetch_news_from_serpapi(
-                keywords=search_query,
-                num_results=50
-            )
+            articles = fetch_news_from_serpapi(keywords=search_query, num_results=50)
         except Exception as e:
-            print(f"❌ Error fetching news (broader): {e}")
+            print(f"[ERROR] Error fetching news (broader): {e}")
             articles = []
 
     # Fallback: hardcoded query
     if not articles:
         fallback_query = "ai jobs automation impact employment"
-        print(f"⚠️ Broader fetch failed. Trying fallback query: '{fallback_query}'")
+        print(f"[WARNING] Broader fetch failed. Trying fallback query: '{fallback_query}'")
         try:
-            articles = fetch_news_from_serpapi(
-                keywords=fallback_query,
-                num_results=50
-            )
+            articles = fetch_news_from_serpapi(keywords=fallback_query, num_results=50)
         except Exception as e:
-            print(f"❌ Error fetching news (fallback): {e}")
+            print(f"[ERROR] Error fetching news (fallback): {e}")
             articles = []
 
-    print(f"🔎 Fetch complete. Retrieved {len(articles)} raw article(s).")
+    print(f"[SEARCH] Fetch complete. Retrieved {len(articles)} raw article(s).")
     if articles:
         sample_titles = [a.get("title") for a in articles[:5]]
-        print("📰 Sample titles:", sample_titles)
+        print("[NEWS] Sample titles:", sample_titles)
 
     # Ensure raw_text exists
     for a in articles:
@@ -331,7 +332,7 @@ async def generate_counterspeech_with_evidence(
     try:
         articles = tool_run_text_analytics(articles)
     except Exception as e:
-        print(f"⚠️ Text analytics failed: {e}")
+        print(f"[WARNING] Text analytics failed: {e}")
 
     # 5) Score & select top_k
     scored = []
@@ -404,7 +405,7 @@ Write only the final counterspeech text.
             counterspeech_text = completion.choices[0].message.content.strip()
 
         except Exception as e:
-            print(f"❌ Groq counterspeech generation error: {e}")
+            print(f"[ERROR] Groq counterspeech generation error: {e}")
             counterspeech_text = None
 
     # Fallback if Groq not available or failed

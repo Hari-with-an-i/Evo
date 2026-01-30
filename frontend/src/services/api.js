@@ -1,77 +1,61 @@
 // The base URL of your Python backend
 const API_URL = 'http://127.0.0.1:8000';
 
-// --- THIS IS THE MISSING FUNCTION ---
 /**
- * Calls the simple search endpoint.
+ * Invokes the Brain Agent with a natural language prompt.
+ * @param {string} prompt - The user's input/query.
+ * @returns {Promise<object>} - The JSON response containing 'final_response'.
  */
+export const invokeBrain = async (prompt) => {
+    try {
+        const response = await fetch(`${API_URL}/brain/invoke`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: prompt })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || 'Network response was not ok');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error("API Call Error:", error);
+        throw error;
+    }
+};
+
+// Deprecated specific endpoints - mapped to Brain calls for backward compatibility if needed, 
+// or simply replaced in the components.
+// We will replace usage in components, so we don't strictly need them here, 
+// but keeping wrapper functions might keep components cleaner.
+
 export const searchArticles = async (query) => {
-    const response = await fetch(`${API_URL}/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-    });
-    if (!response.ok) throw new Error('Network response was not ok.');
-    return response.json();
-};
-// --- END OF MISSING FUNCTION ---
-
-
-/**
- * Calls the initial analysis endpoint.
- */
-export const analyzeQuery = async (query) => {
-    const response = await fetch(`${API_URL}/analyze-query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-    });
-    if (!response.ok) throw new Error('Network response was not ok.');
-    return response.json();
+    return invokeBrain(`Search for recent news about: ${query}`);
 };
 
-/**
- * Calls the deep analysis endpoint with a specific ID.
- */
-export const getDeepAnalysis = async (analysisId) => {
-    const response = await fetch(`${API_URL}/deep-analysis/${analysisId}`);
-    if (!response.ok) throw new Error('Network response was not ok.');
-    return response.json();
-};
-
-/**
- * Calls the narrative comparison endpoint.
- */
-export const compareNarratives = async (intended_truth, media_text) => {
-    const response = await fetch(`${API_URL}/compare-narratives`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intended_truth, media_text })
-    });
-    if (!response.ok) throw new Error('Network response was not ok.');
-    return response.json();
-};
-
-/**
- * Calls the perception trend analysis endpoint.
- */
 export const analyzePerceptionTrend = async (keywords, time_period_days = 30) => {
-    const response = await fetch(`${API_URL}/analyze-perception-trend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keywords, time_period_days, granularity_days: 7 })
-    });
-    if (!response.ok) throw new Error('Network response was not ok.');
-    return response.json();
+    return invokeBrain(`Analyze the perception trend of '${keywords}' over the last ${time_period_days} days.`);
 };
- 
+
+export const generateCounterSpeech = async (statement) => {
+    return invokeBrain(`Generate counter speech and arguments against this statement: "${statement}"`);
+};
+
+export const generateNarrativeReport = async (topic) => {
+    return invokeBrain(`Generate a comprehensive narrative report on: ${topic}`);
+};
+
+export const compareNarratives = async (intended_truth, media_text) => {
+    // Determine how to handle structured response expectation later. 
+    // For now, returning the brain response as a simple object to prevent crashes, 
+    // assuming the component might display the text if we adjust it.
+    // Or we can try to prompt the brain to return JSON, but that's unreliable without a structured output parser.
+    // Let's just return the text in a way that might be displayed, or at least doesn't crash the build.
+    return invokeBrain(`Compare this intended truth: "${intended_truth}" with this media text: "${media_text}". Highlight narrative gaps and misinterpreted points.`);
+};
 
 export const queryGroundTruth = async (query) => {
-    const response = await fetch(`${API_URL}/query-ground-truth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-    });
-    if (!response.ok) throw new Error('Network response was not ok.');
-    return response.json();
+    return invokeBrain(`Query the knowledge base for: ${query}`);
 };

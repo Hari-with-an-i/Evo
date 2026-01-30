@@ -1,0 +1,25 @@
+I am trying to set up an autonomous agentic workflow using Langgraph.. Ihad previously setup an 
+orchestrated workflow using fast api endpoints and tools supporting each process. The project is basically a 
+misinformation mitigation system which helps the user to identify and combat misinformation. And for that I had
+created two modules, namely perception trend analysis and counter speech generation. Each of their individual 
+functionalities can be seen in the /analyze-perception-trends and /generate-counter-speech endpoints respectively.
+
+Now I want to create an autonomous agentic workflow using Langgraph that doesn't rely on the fast api endpoints
+but instead use the supporting tool/functions for these endpoints in such a way that it is dynamic to the user's request.
+I don't want it to be hard and fast in such a way that, for this specific query I use these tools in this specific order.
+Instead I want it to be dynamic in such a way that it can use the tools in any order to achieve the desired result.
+So it can use a combination of tools to achieve the desired result.
+
+For example, if the user asks "What is the current perception trend of AI?", it should use the scout_tool to get the current
+perception trend of AI. If the user asks "What is the perception trend of AI in the last 24 hours?", it should use the
+scout_tool to get the current perception trend of AI and then use the time_tool to get the perception trend of AI in the
+last 24 hours. If the user asks "What is the perception trend of AI in the last 24 hours from reliable sources?", it should
+use the scout_tool to get the current perception trend of AI and then use the time_tool to get the perception trend of AI
+in the last 24 hours and then use the source_tool to get the perception trend of AI in the last 24 hours from reliable
+sources.
+
+And if counter speech is needed, it should use the counter_speech_tool to generate counter speech for the given
+perception trend. Soo it should be able to use a combination of tools to achieve the desired result.
+
+So the main idea is to create a workflow that can use the tools in any order to achieve the desired result.
+

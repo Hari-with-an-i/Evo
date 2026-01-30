@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { searchArticles } from '../../services/api';
 
 function SearchFeature() {
     const [query, setQuery] = useState('');
-    const [results, setResults] = useState([]);
+    const [result, setResult] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -15,11 +16,11 @@ function SearchFeature() {
         }
         setIsLoading(true);
         setError('');
-        setResults([]);
+        setResult('');
         try {
-            // Assumes you have a 'searchArticles' function in your api.js
             const res = await searchArticles(query);
-            setResults(res.articles || []);
+            // The brain returns { final_response: "..." }
+            setResult(res.final_response || "No results found.");
         } catch (err) {
             setError('Failed to fetch articles. Please check the backend connection.');
             console.error(err);
@@ -31,9 +32,8 @@ function SearchFeature() {
     return (
         <div className="feature-card">
             <h2>Article Search</h2>
-            <p>Find credible articles on any topic.</p>
-            
-            {/* --- THIS IS THE FORM THAT WAS MISSING --- */}
+            <p>Find credible articles on any topic (Powered by Evo Brain).</p>
+
             <form onSubmit={handleSearch} className="input-form">
                 <input
                     type="text"
@@ -49,19 +49,10 @@ function SearchFeature() {
             {error && <p className="error-message">{error}</p>}
             {isLoading && <div className="loader"></div>}
 
-            {/* This part displays the results after a successful search */}
-            {results.length > 0 && (
-                <div className="search-results">
+            {result && (
+                <div className="search-results markdown-content">
                     <h4>Search Results</h4>
-                    {results.map((article, index) => (
-                        <div className="result-item" key={index}>
-                            <a href={article.url} target="_blank" rel="noopener noreferrer">
-                                {article.title}
-                            </a>
-                            <span>({article.source})</span>
-                            <p>{article.snippet}</p>
-                        </div>
-                    ))}
+                    <ReactMarkdown>{result}</ReactMarkdown>
                 </div>
             )}
         </div>

@@ -7,11 +7,11 @@ def fetch_news_from_serpapi(keywords: str, num_results: int = 20, start_date: st
     Fetches news articles. Date range is now optional.
     """
     if not SERPAPI_KEY:
-        print("❌ SerpApi key not found in config.")
+        print("[ERROR] SerpApi key not found in config.")
         # Return an empty list to prevent crashes in the calling code
         return []
 
-    print(f"📡 Calling SerpApi for '{keywords}'...")
+    print(f"[SEARCH] Calling SerpApi for '{keywords}'...")
     
     params = {
         "engine": "google",
@@ -33,12 +33,12 @@ def fetch_news_from_serpapi(keywords: str, num_results: int = 20, start_date: st
         news_articles = results_dict.get("news_results")
 
         if not news_articles:
-            print("⚠️ No news articles found.")
+            print("[WARNING] No news articles found.")
             return []
 
-        print(f"✅ Successfully fetched {len(news_articles)} articles.")
+        print(f"[SUCCESS] Successfully fetched {len(news_articles)} articles.")
         return news_articles
 
     except Exception as e:
-        print(f"❌ An error occurred: {e}")
+        print(f"[ERROR] An error occurred: {e}")
         return []
