@@ -25,17 +25,23 @@ async def invoke_brain(request: BrainRequest):
     """
     try:
         # The input to the graph is the state, specifically 'messages'
-        inputs = {"messages": [request.input]}
+        # We wrap the user input in a HumanMessage. 
+        # But LangGraph's add_messages reducer can handle dicts or strings too if configured, 
+        # but better to provide the correct format.
+        from langchain_core.messages import HumanMessage
+        
+        inputs = {"messages": [HumanMessage(content=request.input)]}
         
         # Invoke the graph
-        # Since the graph might have async tools (some are fake async via thread), 
-        # but the graph itself is synchronous in definitions (unless we used async nodes everywhere),
-        # we can use invoke. However, FastAPI is async, so better to thread it if it's blocking.
-        # But for now, let's just call it directly.
-        
         result = brain_app.invoke(inputs)
         
-        final_response = result.get("final_response", "No response generated.")
+        # Extract response from the last message in the conversation history
+        messages = result.get("messages", [])
+        if messages:
+            last_message = messages[-1]
+            final_response = last_message.content
+        else:
+            final_response = "No response generated."
         
         return BrainResponse(final_response=str(final_response))
         

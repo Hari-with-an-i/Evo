@@ -1,12 +1,19 @@
+from typing import Union
 from langchain_core.tools import tool
 from .analytics_manager import tool_fetch_time_series_data
 
 @tool
-def time_tool(keywords: str, days: int = 30):
+def time_tool(keywords: str, days: Union[int, str] = 30):
     """
     Use this tool when the user asks for trends over a specific period or mentions "last X days".
     It fetches news articles over the time period to see how the story evolved.
     """
+    # Defensive casting for robustness against LLM string outputs
+    try:
+        days = int(days)
+    except (ValueError, TypeError):
+        days = 30
+        
     print(f"--- TIME TRAVEL: {keywords} for last {days} days ---")
     
     try:
