@@ -2,14 +2,16 @@ from typing import Annotated, List
 from typing_extensions import TypedDict
 
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+import json
+import ast
 
 # Import tools
 from app.tools.scout_tool import scout_tool
-from app.tools.time_fetcher import time_tool
+from app.tools.dynamic_timeframe_tool import dynamic_timeframe_tool
 from app.tools.source_filtering import source_tool
 from app.tools.sentiment_score import sentiment_tool
 from app.tools.generate_narrative_report import narrative_report_tool
@@ -27,7 +29,7 @@ llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=GROQ_API_
 # We list all available tools so the agent can choose dynamically
 tools = [
     scout_tool, 
-    time_tool, 
+    dynamic_timeframe_tool, 
     source_tool, 
     sentiment_tool, 
     narrative_report_tool, 
@@ -49,7 +51,7 @@ Your goal is to help users identify, analyze, and combat misinformation using a 
 
 **Tool Usage Guidelines:**
 1. **scout_tool**: Use this for general queries to get initial context, facts, and recent news snippets.
-2. **time_tool**: Use this when the user asks for trends over a specific period (e.g., "last 24 hours", "past week").
+2. **dynamic_timeframe_tool**: Use this when the user asks for trends, history, or evolution of a topic. It automatically finds the best timeframe.
 3. **source_tool**: Use this when the user explicitly asks for information from *reliable* or *credible* sources only.
 4. **counterspeech_tool**: Use this to generate arguments or debunk specific claims.
 5. **narrative_report_tool**: Use this ONLY when the user asks for a full "report", "briefing", or comprehensive strategy.
@@ -82,20 +84,93 @@ def agent_node(state: AgentState):
     response = llm_with_tools.invoke([SystemMessage(content=SYSTEM_PROMPT)] + state["messages"])
     return {"messages": [response]}
 
+def aggregator_node(state: AgentState):
+    print("--- AGGREGATING OUTPUTS ---")
+    messages = state["messages"]
+    
+    components = {}
+    
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            try:
+                # Parse the content
+                data = msg.content
+                if isinstance(data, str):
+                    try:
+                        data = json.loads(data)
+                    except json.JSONDecodeError:
+                        try:
+                            # Try AST for python dict string if json fails
+                            data = ast.literal_eval(data)
+                        except:
+                            pass # Keep as string
+                
+                tool_name = msg.name
+                
+                if tool_name == "sentiment_tool":
+                    components["sentiment_analysis"] = {
+                        "component": "SentimentCard",
+                        "data": data
+                    }
+                elif tool_name == "dynamic_timeframe_tool":
+                     components["trend_analysis"] = {
+                        "component": "GraphView",
+                        "data": data
+                    }
+                elif tool_name == "narrative_report_tool":
+                     components["narrative_report"] = {
+                        "component": "ReportView",
+                        "data": data
+                    }
+                elif tool_name == "counterspeech_tool":
+                     components["counterspeech"] = {
+                        "component": "CounterspeechCard",
+                        "data": data
+                    }
+                elif tool_name == "scout_tool":
+                    components["scout_results"] = {
+                        "component": "ReseachFeed", # Typo intentional if matching user spec, but assuming generic valid name
+                        "data": data
+                    }
+                
+            except Exception as e:
+                print(f"Error processing tool output for {msg.name}: {e}")
+    
+    # Include the final agent text response
+    # We look for the last AIMessage that is NOT a tool call request (i.e. has content but no tool_calls)
+    # However, usually the flow is Agent -> Tool -> Agent.
+    # The last message entering this node is likely an AIMessage from the agent saying "Here is the report..."
+    
+    last_msg = messages[-1]
+    if isinstance(last_msg, AIMessage) and last_msg.content:
+         components["agent_response"] = {
+             "component": "ChatBubble",
+             "data": {"text": last_msg.content}
+         }
+         
+    # Return structured JSON as a final message
+    return {"messages": [AIMessage(content=json.dumps(components))]}
+
 # Build Graph
 builder = StateGraph(AgentState)
 
 builder.add_node("agent", agent_node)
 builder.add_node("tools", ToolNode(tools))
+builder.add_node("aggregator", aggregator_node)
 
 builder.add_edge(START, "agent")
 
-# Conditional edge: If the agent calls a tool -> "tools" node. Else -> END.
+# Conditional edge: If the agent calls a tool -> "tools" node. Else -> "aggregator".
 builder.add_conditional_edges(
     "agent",
     tools_condition,
+    {
+        "tools": "tools",
+        END: "aggregator"
+    }
 )
 
 builder.add_edge("tools", "agent")
+builder.add_edge("aggregator", END)
 
 brain_app = builder.compile()

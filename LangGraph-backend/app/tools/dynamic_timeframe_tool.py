@@ -1,12 +1,13 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from datetime import date, timedelta
 import requests
 import logging
 import sys
 import time
+import json
+from langchain_core.tools import tool
+from app.config import SERPAPI_KEY
 
-
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -26,13 +27,15 @@ REQUEST_DELAY = 1.5
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0
 
-app = FastAPI(title="Dynamic Timeframe Agent")
-
-class TimeframeRequest(BaseModel):
-    query: str
-
+# STOP WORDS for relevance scoring
+STOP_WORDS = {'the','a','an','in','on','at','to','for','of','and','or','is','was',
+              'are','were','has','have','had','that','this','with'}
 
 def fetch_news(query, start_date, end_date, num=20):
+    if not SERPAPI_KEY:
+        logger.error("SERPAPI_KEY not found in config")
+        return []
+
     cd_min = start_date.strftime("%m/%d/%Y")
     cd_max = end_date.strftime("%m/%d/%Y")
 
@@ -41,7 +44,7 @@ def fetch_news(query, start_date, end_date, num=20):
         "q": query,
         "tbm": "nws",
         "num": num,
-        "api_key": SERPAPI_API_KEY,
+        "api_key": SERPAPI_KEY,
         "tbs": f"cdr:1,cd_min:{cd_min},cd_max:{cd_max}",
     }
 
@@ -94,9 +97,6 @@ def expand_query(query: str):
     return variants
 
 # PER-ARTICLE RELEVANCE SCORING
-STOP_WORDS = {'the','a','an','in','on','at','to','for','of','and','or','is','was',
-              'are','were','has','have','had','that','this','with'}
-
 def score_article(query: str, keywords: list, article: dict) -> float:
     """
     Score a single article 0.0 → 1.0.
@@ -153,7 +153,6 @@ def filter_and_score(query: str, articles: list) -> list:
     return relevant
 
 # AGENT CORE — NARROW → WIDE, STOP AT TIGHTEST WINDOW
-
 def dynamic_timeframe_agent(query: str):
     """
     Start with the narrowest window (3 months) and expand outward.
@@ -245,67 +244,29 @@ def dynamic_timeframe_agent(query: str):
     logger.info("=" * 80)
     return best_result
 
-# API ENDPOINT
-@app.post("/agent/dynamic-timeframe")
-def get_timeframe(request: TimeframeRequest):
+@tool
+def dynamic_timeframe_tool(query: str):
+    """
+    Use this tool to investigate a topic over time. 
+    It automatically determines the best timeframe (months) to look back to find relevant news.
+    Returns the most relevant articles, the optimal timeframe found, and stats.
+    Best for "how this evolved", "history of...", "timeline of..." queries.
+    """
     try:
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info(f"📥 INCOMING REQUEST | Query: '{request.query}'")
-        logger.info("=" * 80)
-
-        result = dynamic_timeframe_agent(request.query)
-
+        result = dynamic_timeframe_agent(query)
+        
         if not result:
-            return {
-                "status": "success",
-                "query": request.query,
-                "start_date": None,
-                "end_date": None,
-                "lookback_months": 0,
-                "article_count": 0,
-                "avg_relevance": 0,
-                "iterations": 0,
-                "articles_preview": [],
-            }
+            return "No relevant articles found."
 
-        logger.info("")
-        logger.info(f"✅ DONE | {result['start_date']} → {result['end_date']} | {result['article_count']} articles | {result['lookback_months']} months")
-        logger.info("=" * 80)
-
-        # Clean up internal score field for response, expose as relevance_score
-        preview = []
-        for a in result["articles"][:5]:
-            clean = {k: v for k, v in a.items() if k != "_relevance_score"}
-            clean["relevance_score"] = a.get("_relevance_score", 0)
-            preview.append(clean)
-
-        return {
-            "status": "success",
-            "query": request.query,
-            "start_date": result["start_date"],
-            "end_date": result["end_date"],
-            "lookback_months": result["lookback_months"],
-            "article_count": result["article_count"],
-            "avg_relevance": result["avg_relevance"],
-            "iterations": result["iterations"],
-            "articles_preview": preview,
-        }
-
+        # Serialize dates for JSON
+        if result:
+            result_copy = result.copy()
+            if "start_date" in result_copy and isinstance(result_copy["start_date"], date):
+                result_copy["start_date"] = result_copy["start_date"].isoformat()
+            if "end_date" in result_copy and isinstance(result_copy["end_date"], date):
+                result_copy["end_date"] = result_copy["end_date"].isoformat()
+            return result_copy
+        return "No result found."
     except Exception as e:
-        logger.exception("❌ AGENT FAILED")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("=" * 80)
-    logger.info("🚀 Dynamic Timeframe Agent started")
-    logger.info(f"   Timeframe steps: {TIMEFRAME_STEPS} months")
-    logger.info(f"   Min relevant articles: {MIN_ARTICLES}")
-    logger.info(f"   Per-article relevance threshold: {RELEVANCE_THRESHOLD}")
-    logger.info("=" * 80)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+        logger.exception("Dynamic Timeframe Tool Failed")
+        return f"Error executing dynamic timeframe search: {str(e)}"

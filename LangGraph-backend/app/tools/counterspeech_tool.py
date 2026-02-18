@@ -25,10 +25,11 @@ def counterspeech_tool(statement: str):
         cs = result["counterspeech"]
         evidences = result.get("evidences", [])
         
-        evidence_text = "\n".join([f"- {e['title']} ({e['source']})" for e in evidences])
-        
-        output = f"**Counterspeech Argument:**\n{cs}\n\n**Key Evidence:**\n{evidence_text}"
-        return output
+        return {
+            "type": "counterspeech",
+            "content": cs,
+            "evidence": evidences
+        }
 
     except RuntimeError:
         return "System Error: Async Event Loop conflict. Please check logs."

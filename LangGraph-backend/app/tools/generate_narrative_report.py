@@ -50,18 +50,8 @@ def narrative_report_tool(topic: str):
             return "Error: Async loop conflict."
         
         # If report is dict with keys, format it for LLM
-        if isinstance(report, dict):
-            summary = report.get("executive_summary", "")
-            trend = report.get("analysis_of_trend", "")
-            strategies = report.get("mitigation_strategies", [])
-            
-            formatted = f"**Executive Summary**\n{summary}\n\n**Trend Analysis**\n{trend}\n\n**Strategies**\n"
-            if isinstance(strategies, list):
-                for s in strategies:
-                    formatted += f"- {s.get('name')}: {s.get('description')}\n"
-            else:
-                formatted += str(strategies)
-            return formatted
+            # Return the raw dictionary so the aggregator can use it
+            return report
             
         return str(report)
 
